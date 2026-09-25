@@ -249,7 +249,23 @@ The threshold was set to `0.4`: all four in-domain scores were above it, while t
 
 ## Testing
 
-Automated pytest coverage was not completed within the 3.5-hour assessment window; this was an intentional scope cut. The following checks were performed manually during the session:
+The focused automated suite uses mocked model/provider calls and does not need real API credentials or network access. The last `python -m pytest -v` run passed all 11 tests. This table maps the core guarantees to their tests:
+
+| Guarantee | Input used | Test |
+|---|---|---|
+| Empty question rejected before retrieval or generation | Request: `{"question":"   "}`; mocked `retrieve` and `generate_answer_with_usage` | [`tests/test_api_validation.py::test_empty_question_returns_422_without_retrieval_or_generation`](tests/test_api_validation.py) |
+| Oversized question rejected before retrieval or generation | Request question: `"x" * 2001`; configured maximum: 2000; mocked `retrieve` and `generate_answer_with_usage` | [`tests/test_api_validation.py::test_oversized_question_returns_422_without_retrieval_or_generation`](tests/test_api_validation.py) |
+| Valid question passes request validation and reaches the normal flow | Question: `"How do I rotate a token?"`; mocked chunk: `("authentication.md", "Token rotation", "Tokens can be rotated in the console.", 0.8)`; mocked answer: `"Rotate the token in the console."` | [`tests/test_api_validation.py::test_valid_question_passes_validation`](tests/test_api_validation.py) |
+| High similarity routes to generation, not fallback | Question: `"rotate token"`; mocked retrieval score: `0.8` (threshold `0.4`); mocked answer: `"Rotate the token in the console."` | [`tests/test_orchestrator_threshold.py::test_high_similarity_uses_generation_not_fallback`](tests/test_orchestrator_threshold.py) |
+| Low similarity routes to fallback, not generation | Question: `"unrelated question"`; mocked retrieval score: `0.2` (threshold `0.4`); mocked fallback result: `"simulated"` | [`tests/test_orchestrator_threshold.py::test_low_similarity_uses_fallback_not_generation`](tests/test_orchestrator_threshold.py) |
+| Empty retrieval routes to fallback, not generation | Question: `"question with empty index"`; mocked retrieval result: `[]`; mocked fallback result: `"no result"` | [`tests/test_orchestrator_threshold.py::test_empty_retrieval_uses_fallback_not_generation`](tests/test_orchestrator_threshold.py) |
+| Valid LLM JSON is parsed and validated | Question: `"How do I rotate a token?"`; response content: `{"answer":"Rotate it in the console.","citations":[{"document":"authentication.md","section":"Token rotation"}],"confidence":0.8,"threshold_used":0.4,"warnings":[]}` | [`tests/test_generator_validation.py::test_valid_groq_json_is_parsed_and_validated`](tests/test_generator_validation.py) |
+| Citation absent from retrieved chunks is rejected | Question: `"question"`; response cites `{"document":"other.md","section":"Missing section"}`; retrieved chunk is `authentication.md` / `Token rotation` | [`tests/test_generator_validation.py::test_citation_not_in_retrieved_chunks_is_rejected`](tests/test_generator_validation.py) |
+| Malformed/non-JSON LLM output is rejected | Question: `"question"`; response content: `"this is not JSON"` | [`tests/test_generator_validation.py::test_malformed_groq_content_is_rejected`](tests/test_generator_validation.py) |
+| Fallback is deterministic and makes no network calls | Question called twice: `"capital of France"`; `socket.create_connection` and `urllib.request.urlopen` mocked to fail if called | [`tests/test_fallback.py::test_mock_search_is_labeled_deterministic_and_offline`](tests/test_fallback.py) |
+| Question embedding and Chroma cosine-distance conversion are correct | Question: `"sample question"`; embedding mock: `np.zeros(384, dtype=np.float32)`; Chroma distances: `0.2`, `0.7`; expected similarities: `0.8`, `0.30000000000000004` | [`tests/test_retriever.py::test_retriever_embeds_question_and_converts_cosine_distance`](tests/test_retriever.py) |
+
+The following integration/evaluation checks were performed manually during the session:
 
 - Ingestion built the local index from 7 documents and 28 section chunks.
 - CLI evaluation reported 4/4 in-domain questions answered with grounding/citations and 1/1 unrelated question routed to fallback.
@@ -263,7 +279,7 @@ Automated pytest coverage was not completed within the 3.5-hour assessment windo
 
 ## Known Limitations
 
-- There is no automated test suite yet; verification was manual because of the time limit.
+- The automated suite is intentionally focused rather than exhaustive; live-provider behavior and the evaluation corpus are still verified manually.
 - `all-MiniLM-L6-v2` has a different, generally lower similarity score distribution than the OpenAI embedding model originally considered. The `0.4` threshold was calibrated on this small corpus and question set and should be recalibrated for other data/models.
 - `openai/gpt-oss-120b` is a reasoning model and can use output budget on internal reasoning before producing JSON. `max_tokens` was increased to 1200 after a longer/compound prompt exposed a real generation failure. Longer questions may still need a different budget or context strategy.
 - The rate-limit-status-code question received a technically correct answer, but one of its two citations was only tangentially relevant. Citation precision could improve with reranking or stricter evidence-to-claim checks.
@@ -275,7 +291,7 @@ Automated pytest coverage was not completed within the 3.5-hour assessment windo
 
 ## Future Improvements
 
-- Add automated tests with mocked embedding and generation provider calls.
+- Expand test coverage to include the SSE streaming path and ChromaDB unavailability handling.
 - Rerank retrieved chunks and improve citation precision.
 - Add authentication, authorization, and rate limiting before any shared/public deployment.
 - Support PDF ingestion alongside Markdown.

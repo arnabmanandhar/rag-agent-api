@@ -193,7 +193,7 @@ Status codes:
 
 ### Structured request logs
 
-Each request is logged as one JSON line with `request_id`, `retrieval_latency_ms`, `generation_latency_ms`, `outcome`, and `token_usage` when the Groq response supplies usage. Logs do not include the question, retrieved text, or API key. A request ID is generated when `X-Request-ID` is not provided.
+Each request is logged as one JSON line with `request_id`, `retrieval_latency_ms`, `generation_latency_ms`, `outcome`, `model`, and `token_usage` when the Groq response supplies usage. `model` is the configured generation model after successful grounded generation and `null` for fallback responses or requests that do not produce a validated generation. Logs do not include the question, retrieved text, or API key. A request ID is generated when `X-Request-ID` is not provided.
 
 ## AI Design
 

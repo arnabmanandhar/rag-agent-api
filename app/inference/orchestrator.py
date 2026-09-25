@@ -10,7 +10,7 @@ from app.tools.fallback import mock_web_search
 
 def answer_question(question: str, metrics: dict | None = None) -> AnswerResponse:
     metrics = metrics if metrics is not None else {}
-    metrics.update({"retrieval_latency_ms": 0.0, "generation_latency_ms": 0.0, "token_usage": None})
+    metrics.update({"retrieval_latency_ms": 0.0, "generation_latency_ms": 0.0, "model": None, "token_usage": None})
     settings = get_settings()
     normalized_question = question.strip()
     if not normalized_question:
@@ -40,6 +40,7 @@ def answer_question(question: str, metrics: dict | None = None) -> AnswerRespons
     try:
         generated = generate_answer_with_usage(normalized_question, chunks)
         metrics["token_usage"] = generated.usage
+        metrics["model"] = settings.generation_model
     finally:
         metrics["generation_latency_ms"] = round((perf_counter() - started) * 1000, 2)
     # Never trust model-reported retrieval values; replace them with the actual retrieval score and threshold.

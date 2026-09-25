@@ -2,9 +2,11 @@
 
 import json
 import logging
+import sys
 import time
 import uuid
-from logging import LogRecord
+from logging import FileHandler, LogRecord
+from pathlib import Path
 from typing import Any
 
 import chromadb
@@ -32,10 +34,15 @@ class JsonLogFormatter(logging.Formatter):
 logger = logging.getLogger("rag_api")
 logger.setLevel(logging.INFO)
 logger.propagate = False
+LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 if not logger.handlers:
-    stream_handler = logging.StreamHandler()
+    stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(JsonLogFormatter())
     logger.addHandler(stream_handler)
+    file_handler = FileHandler(LOG_DIR / "requests.jsonl", mode="a", encoding="utf-8")
+    file_handler.setFormatter(JsonLogFormatter())
+    logger.addHandler(file_handler)
 
 app = FastAPI(title="TaskFlow Knowledge Base API", version="1.0.0")
 
@@ -49,6 +56,7 @@ def _log_request(request: Request) -> None:
         "retrieval_latency_ms": metrics.get("retrieval_latency_ms", 0.0),
         "generation_latency_ms": metrics.get("generation_latency_ms", 0.0),
         "outcome": metrics.get("outcome", "error"),
+        "model": metrics.get("model"),
         "token_usage": metrics.get("token_usage"),
     }})
     state.logged = True
@@ -58,7 +66,7 @@ def _log_request(request: Request) -> None:
 async def request_context(request: Request, call_next):
     supplied_id = request.headers.get("x-request-id", "").strip()
     request.state.request_id = supplied_id[:128] if supplied_id else str(uuid.uuid4())
-    request.state.metrics = {"retrieval_latency_ms": 0.0, "generation_latency_ms": 0.0, "token_usage": None, "outcome": "error"}
+    request.state.metrics = {"retrieval_latency_ms": 0.0, "generation_latency_ms": 0.0, "outcome": "error", "model": None, "token_usage": None}
     try:
         response = await call_next(request)
     except Exception:
@@ -164,6 +172,7 @@ def _stream_query(question: str, request: Request):
                     yield _sse("token", {"text": value})
                 elif event == "result":
                     metrics["token_usage"] = value.usage
+                    metrics["model"] = settings.generation_model
                     response = QueryResponse.model_validate(value.response.model_dump()).model_copy(update={
                         "confidence": confidence,
                         "threshold_used": settings.similarity_threshold,

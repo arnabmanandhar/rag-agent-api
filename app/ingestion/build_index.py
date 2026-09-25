@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import NamedTuple
 
-from openai import OpenAI
+from sentence_transformers import SentenceTransformer
 
 from app.config import PROJECT_ROOT, get_settings
 
@@ -62,16 +62,14 @@ def build_index(data_dir: Path = DATA_DIR) -> dict[str, int]:
     if not records:
         raise RuntimeError("No non-empty sections were found in the Markdown dataset")
 
-    client = OpenAI(api_key=settings.openai_api_key.get_secret_value())
+    # Load the local model once and reuse it for every batch in this ingestion run.
+    model = SentenceTransformer(settings.embedding_model)
     embeddings: list[list[float]] = []
     batch_size = 100
     for start in range(0, len(records), batch_size):
         batch = records[start:start + batch_size]
-        response = client.embeddings.create(
-            model=settings.embedding_model,
-            input=[record[1] for record in batch],
-        )
-        embeddings.extend(item.embedding for item in response.data)
+        encoded = model.encode([record[1] for record in batch], convert_to_numpy=True, show_progress_bar=False)
+        embeddings.extend(encoded.tolist())
 
     settings.chroma_persist_dir.mkdir(parents=True, exist_ok=True)
     db = chromadb.PersistentClient(path=str(settings.chroma_persist_dir))
